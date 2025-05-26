@@ -1,3 +1,8 @@
 [workspace]
 resolver = "2"
-members = ["ch01_01"]
+members = ["ch01_01", "ch01_02"]
+
+[workspace.dependencies]
+reqwest = "0.11.14"
+tokio = {version = "1.26.0", features = ["full"]}
+tempfile = "3.2.0"
