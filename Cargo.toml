@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["ch01_01", "ch01_02"]
+members = ["ch01_01", "ch01_02", "ch02_01", "ch02_02", "ch02_03"]
 
 [workspace.dependencies]
 reqwest = "0.11.14"
