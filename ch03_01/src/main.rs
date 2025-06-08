@@ -1,18 +1,16 @@
-use std::{future::Future, panic::catch_unwind, thread};
-use std::pin::Pin;
-use std::time::{Duration, Instant};
-use std::task::{Context, Poll};
 use async_task::{Runnable, Task};
+use flume::{Receiver, Sender};
 use futures_lite::future;
 use once_cell::sync::Lazy;
-use flume::{Sender, Receiver};
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use std::time::{Duration, Instant};
+use std::{future::Future, panic::catch_unwind, thread};
 
-static HIGH_CHANNEL: Lazy<(Sender<Runnable>, Receiver<Runnable>)> = Lazy::new(|| {
-    flume::unbounded::<Runnable>()
-});
-static LOW_CHANNEL: Lazy<(Sender<Runnable>, Receiver<Runnable>)> = Lazy::new(|| {
-    flume::unbounded::<Runnable>()
-});
+static HIGH_CHANNEL: Lazy<(Sender<Runnable>, Receiver<Runnable>)> =
+    Lazy::new(|| flume::unbounded::<Runnable>());
+static LOW_CHANNEL: Lazy<(Sender<Runnable>, Receiver<Runnable>)> =
+    Lazy::new(|| flume::unbounded::<Runnable>());
 
 #[derive(Debug, Clone, Copy)]
 enum FutureType {
@@ -54,12 +52,12 @@ struct AsyncSleep {
     duration: Duration,
 }
 impl AsyncSleep {
-   fn new(duration: Duration) -> Self {
+    fn new(duration: Duration) -> Self {
         Self {
             start_time: Instant::now(),
-            duration
+            duration,
         }
-   }
+    }
 }
 impl Future for AsyncSleep {
     type Output = bool;
@@ -80,20 +78,20 @@ async fn async_fn() {
 }
 
 static QUEUE: Lazy<flume::Sender<Runnable>> = Lazy::new(|| {
-    let (tx,rx) = flume::unbounded::<Runnable>();
+    let (tx, rx) = flume::unbounded::<Runnable>();
     let queue_one = rx.clone();
     let queue_two = rx.clone();
     thread::spawn(move || {
-    while let Ok(runnable) = queue_one.recv() {
-        println!("runnable accepted");
-        let _ = catch_unwind(|| runnable.run());
-    }
+        while let Ok(runnable) = queue_one.recv() {
+            println!("runnable accepted");
+            let _ = catch_unwind(|| runnable.run());
+        }
     });
     thread::spawn(move || {
-    while let Ok(runnable) = queue_two.recv() {
-        println!("runnable accepted");
-        let _ = catch_unwind(|| runnable.run());
-    }
+        while let Ok(runnable) = queue_two.recv() {
+            println!("runnable accepted");
+            let _ = catch_unwind(|| runnable.run());
+        }
     });
     tx
 });
@@ -112,24 +110,22 @@ static HIGH_QUEUE: Lazy<flume::Sender<Runnable>> = Lazy::new(|| {
                 match high_receiver.try_recv() {
                     Ok(r) => {
                         let _ = catch_unwind(|| r.run());
-                    },
-                    Err(_) => {
-                        match low_receiver.try_recv() {
-                            Ok(r) => {
-                                let _ = catch_unwind(|| r.run());
-                            },
-                            Err(_) => {
-                                std::thread::sleep(Duration::from_millis(100));
-                            }
-                        }
                     }
+                    Err(_) => match low_receiver.try_recv() {
+                        Ok(r) => {
+                            let _ = catch_unwind(|| r.run());
+                        }
+                        Err(_) => {
+                            std::thread::sleep(Duration::from_millis(100));
+                        }
+                    },
                 }
             }
         });
     }
     HIGH_CHANNEL.0.clone()
 });
-/* 
+/*
 static LOW_QUEUE: Lazy<flume::Sender<Runnable>> = Lazy::new(|| {
     let (tx,rx) = flume::unbounded::<Runnable>();
     for _ in 0..1 {
@@ -158,26 +154,25 @@ static LOW_QUEUE: Lazy<flume::Sender<Runnable>> = Lazy::new(|| {
                 match low_receiver.try_recv() {
                     Ok(r) => {
                         let _ = catch_unwind(|| r.run());
-                    },
-                    Err(_) => {
-                        match high_receiver.try_recv() {
-                            Ok(r) => {
-                                let _ = catch_unwind(|| r.run());
-                            },
-                            Err(_) => {
-                                std::thread::sleep(Duration::from_millis(100));
-                            }
-                        }
                     }
+                    Err(_) => match high_receiver.try_recv() {
+                        Ok(r) => {
+                            let _ = catch_unwind(|| r.run());
+                        }
+                        Err(_) => {
+                            std::thread::sleep(Duration::from_millis(100));
+                        }
+                    },
                 }
             }
         });
     }
     LOW_CHANNEL.0.clone()
 });
-fn spawn_task<F,T>(future: F, order: FutureType) -> Task<T> 
-where F: Future<Output = T> + Send + 'static,
-      T: Send + 'static,
+fn spawn_task<F, T>(future: F, order: FutureType) -> Task<T>
+where
+    F: Future<Output = T> + Send + 'static,
+    T: Send + 'static,
 {
     //let schedule = |runnable| QUEUE.send(runnable).unwrap();
     //let (runnable, task) = async_task::spawn(future, schedule);
@@ -187,8 +182,8 @@ where F: Future<Output = T> + Send + 'static,
     let schedule_high = |runnable| HIGH_QUEUE.send(runnable).unwrap();
     let schedule_low = |runnable| LOW_QUEUE.send(runnable).unwrap();
     let schedule = match order {
-        FutureType::High => {schedule_high},
-        FutureType::Low => {schedule_low},
+        FutureType::High => schedule_high,
+        FutureType::Low => schedule_low,
     };
     let (runnable, task) = async_task::spawn(future, schedule);
     runnable.schedule();
@@ -231,14 +226,14 @@ macro_rules! try_join {
 }
 
 fn main() {
-    /* 
+    /*
     let async_sleep = AsyncSleep::new(Duration::from_secs(5));
     let async_sleep_handle = spawn_task(async {
         async_sleep.await;
         todo!()
     });
     */
-    /* 
+    /*
     let one = CounterFuture {count: 0};
     let two = CounterFuture {count: 0};
     let t_one = spawn_task(one);
@@ -262,15 +257,18 @@ fn main() {
 
     //future::block_on(t_one);
     //future::block_on(t_two);
-    let one = CounterFuture {count: 0};
-    let two = CounterFuture {count: 0};
+    let one = CounterFuture { count: 0 };
+    let two = CounterFuture { count: 0 };
     let t_one = spawn_task!(one, FutureType::High);
     let t_two = spawn_task!(two);
     let t_three = spawn_task!(async_fn());
-    let t_four = spawn_task!(async {
-        async_fn().await;
-        async_fn().await;
-    }, FutureType::High);
+    let t_four = spawn_task!(
+        async {
+            async_fn().await;
+            async_fn().await;
+        },
+        FutureType::High
+    );
 
     //future::block_on(t_one);
     //future::block_on(t_two);

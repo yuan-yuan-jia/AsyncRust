@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use tokio::fs::File as AsyncFile;
 use tokio::io::AsyncReadExt;
 use tokio::sync::watch;
-use tokio::time::{sleep,Duration};
+use tokio::time::{Duration, sleep};
 
 async fn read_file(filename: &str) -> Result<String, std::io::Error> {
     let mut file = AsyncFile::open(filename).await?;
@@ -29,7 +29,7 @@ async fn watch_file_changes(tx: watch::Sender<bool>) {
 
 #[tokio::main]
 async fn main() {
-    let (tx,mut rx) = watch::channel(false);
+    let (tx, mut rx) = watch::channel(false);
     tokio::spawn(watch_file_changes(tx));
 
     loop {

@@ -1,6 +1,6 @@
 use std::time::Duration;
-use tokio::time::sleep;
 use std::time::Instant;
+use tokio::time::sleep;
 
 async fn prep_coffe_mug() {
     sleep(Duration::from_millis(100)).await;
@@ -8,7 +8,7 @@ async fn prep_coffe_mug() {
     std::thread::sleep(Duration::from_secs(3));
     println!("Milk poured");
     println!("Putting instant coffee...");
-    std::thread::sleep(Duration::from_secs(3)); 
+    std::thread::sleep(Duration::from_secs(3));
     println!("Instant coffee put.")
 }
 

@@ -1,25 +1,18 @@
+use futures_util::future::join_all;
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
-use std::sync::{Arc, Mutex};
 use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use tokio::task::JoinHandle;
-use futures_util::future::join_all;
 
 type AsyncFileHandle = Arc<Mutex<File>>;
-type FileJoinHandle = JoinHandle<Result<bool,String>>;
+type FileJoinHandle = JoinHandle<Result<bool, String>>;
 
 fn get_handle(file_path: &dyn ToString) -> AsyncFileHandle {
     match OpenOptions::new().append(true).open(file_path.to_string()) {
-        Ok(opend_file) => {
-            Arc::new(Mutex::new(opend_file))
-        },
-        Err(_) => {
-            Arc::new(
-                Mutex::new(
-                    File::create(file_path.to_string()).unwrap()
-                ))
-        },
+        Ok(opend_file) => Arc::new(Mutex::new(opend_file)),
+        Err(_) => Arc::new(Mutex::new(File::create(file_path.to_string()).unwrap())),
     }
 }
 
@@ -38,7 +31,7 @@ impl Future for AsyncWriteFuture {
                 println!("error for {} : {}", self.entry, error);
                 cx.waker().wake_by_ref();
                 return Poll::Pending;
-            },
+            }
         };
         let lined_entry = format!("{}\n", self.entry);
         match guard.write_all(lined_entry.as_bytes()) {
@@ -53,9 +46,7 @@ fn write_log(file_handle: AsyncFileHandle, line: String) -> FileJoinHandle {
         handle: file_handle,
         entry: line,
     };
-    tokio::task::spawn(async move {
-        future.await
-    })
+    tokio::task::spawn(async move { future.await })
 }
 #[tokio::main]
 async fn main() {

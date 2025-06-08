@@ -18,7 +18,7 @@ impl Future for CounterFuture {
         if self.count < 3 {
             cx.waker().wake_by_ref();
             Poll::Pending
-        }else {
+        } else {
             Poll::Ready(self.count)
         }
     }
@@ -26,15 +26,11 @@ impl Future for CounterFuture {
 
 #[tokio::main]
 async fn main() {
-    let counter_one = CounterFuture{count: 0};
-    let counter_two = CounterFuture{count: 0};
-    let handle_one: JoinHandle<u32> = tokio::task::spawn(async move {
-        counter_one.await
-    });
+    let counter_one = CounterFuture { count: 0 };
+    let counter_two = CounterFuture { count: 0 };
+    let handle_one: JoinHandle<u32> = tokio::task::spawn(async move { counter_one.await });
 
-    let handle_two: JoinHandle<u32> = tokio::task::spawn(async move {
-        counter_two.await
-    });
+    let handle_two: JoinHandle<u32> = tokio::task::spawn(async move { counter_two.await });
 
     let _ = tokio::join!(handle_one, handle_two);
 }

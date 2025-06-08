@@ -1,6 +1,11 @@
-use std::{fs::File, io::BufRead, process::{self, Command, Stdio}, time::{Duration, Instant}};
-use std::io::Write;
 use reqwest::Error;
+use std::io::Write;
+use std::{
+    fs::File,
+    io::BufRead,
+    process::{self, Command, Stdio},
+    time::{Duration, Instant},
+};
 
 fn fibonacci(n: u64) -> u64 {
     if n == 0 || n == 1 {
@@ -12,15 +17,15 @@ fn fibonacci(n: u64) -> u64 {
 
 fn run_processes() {
     let mut process1 = Command::new(std::env::current_exe().unwrap())
-                                .arg("task")
-                                .arg("1")
-                                .spawn()
-                                .expect("Failed to start process1");
+        .arg("task")
+        .arg("1")
+        .spawn()
+        .expect("Failed to start process1");
     let mut process2 = Command::new(std::env::current_exe().unwrap())
-                                .arg("task")
-                                .arg("6")
-                                .spawn()
-                                .expect("Failed to start process1");
+        .arg("task")
+        .arg("6")
+        .spawn()
+        .expect("Failed to start process1");
     process1.wait().expect("Failed to wait for process1");
     process2.wait().expect("Failed to wait for process1");
     println!("Both processes have completed.")
@@ -28,11 +33,11 @@ fn run_processes() {
 
 fn task(no: usize) {
     println!("Running task... ");
-    println!("Task {} completed in process: {}",no,std::process::id())
+    println!("Task {} completed in process: {}", no, std::process::id())
 }
 fn main() {
     let pid = process::id();
-    println!("process ID: {}",pid);
+    println!("process ID: {}", pid);
     let stdin = std::io::stdin();
     let mut lines = stdin.lock().lines();
     loop {
@@ -47,7 +52,7 @@ fn main() {
     }
 }
 // 3
-/* 
+/*
 fn main() {
     let child_process_code = r#"
         use std::env; 
@@ -71,7 +76,7 @@ fn main() {
 
     // Write the Rust code to the temporary file
     file.write_all(child_process_code.as_bytes()).expect("Failed to write child process code to temporary file");
-   
+
     let compile_output = Command::new("rustc")
         .arg("-o")
         .arg("child_process")
@@ -97,7 +102,7 @@ fn main() {
 }
 */
 // 2
-/* 
+/*
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let start = Instant::now();
@@ -117,7 +122,7 @@ fn main() {
     }
 }*/
 // 1
-/* 
+/*
 #[tokio::main]
 async fn main() -> Result<(),Error> {
     let mut threads = Vec::new();
