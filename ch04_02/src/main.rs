@@ -1,13 +1,9 @@
-use anyhow::{Context as _, Error, Result, bail};
-use async_native_tls::TlsStream;
-use async_task::{Runnable, Task};
+use async_task::Runnable;
 use flume::{Receiver, Sender};
 use futures_lite::future;
-use http::Uri;
-use hyper::{Body, Client, Request, Response};
 use once_cell::sync::Lazy;
-use smol::{Async, io, prelude::*};
-use std::net::{Shutdown, TcpStream, ToSocketAddrs};
+use smol::Task;
+use std::error::Error;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
@@ -277,156 +273,83 @@ impl Future for BackgroundProcess {
         Poll::Pending
     }
 }
-struct CustomExecutor;
 
-impl<F> hyper::rt::Executor<F> for CustomExecutor
-where
-    F: Future + Send + 'static,
-{
-    fn execute(&self, fut: F) {
-        spawn_task!(async {
-            println!("sending reqeust");
-            fut.await;
-        })
-        .detach();
-    }
-}
-enum CustomStream {
-    Plain(Async<TcpStream>),
-    Tls(TlsStream<Async<TcpStream>>),
-}
-#[derive(Clone)]
-struct CustomConnector;
-impl hyper::service::Service<Uri> for CustomConnector {
-    type Response = CustomStream;
-    type Error = Error;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+use mio::net::{TcpListener, TcpStream};
+use mio::{Events, Interest, Poll as MioPoll, Token};
+use std::io::{Read, Write};
 
-    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<std::result::Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
-    }
-    fn call(&mut self, req: Uri) -> Self::Future {
-        Box::pin(async move {
-            let host = req.host().context("cannot parse host")?;
-            match req.scheme_str() {
-                Some("http") => {
-                    let socket_addr = {
-                        let host = host.to_string();
-                        let port = req.port_u16().unwrap_or(80);
-                        smol::unblock(move || (host.as_str(), port).to_socket_addrs())
-                            .await?
-                            .next()
-                            .context("cannot resolve address")?
-                    };
-                    let stream = Async::<TcpStream>::connect(socket_addr).await?;
-                    Ok(CustomStream::Plain(stream))
+const SERVER: Token = Token(0);
+const CLIENT: Token = Token(1);
+
+struct ServerFuture {
+    server: TcpListener,
+    poll: MioPoll,
+}
+impl Future for ServerFuture {
+    type Output = String;
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut events = Events::with_capacity(1);
+        let _ = self
+            .poll
+            .poll(&mut events, Some(Duration::from_millis(200)))
+            .unwrap();
+        for event in events.iter() {
+            if event.token() == SERVER && event.is_readable() {
+                let (mut stream, _) = self.server.accept().unwrap();
+                let mut buffer = [0u8; 1024];
+                let mut received_data = Vec::new();
+
+                loop {
+                    match stream.read(&mut buffer) {
+                        Ok(n) if n > 0 => {
+                            received_data.extend_from_slice(&buffer[..n]);
+                        }
+                        Ok(_) => {
+                            break;
+                        }
+                        Err(e) => {
+                            eprintln!("Error reading from stream: {}", e);
+                            break;
+                        }
+                    }
                 }
-                Some("https") => {
-                    let socket_addr = {
-                        let host = host.to_string();
-                        let port = req.port_u16().unwrap_or(443);
-                        smol::unblock(move || (host.as_str(), port).to_socket_addrs())
-                            .await?
-                            .next()
-                            .context("cannot resolve address")?
-                    };
-                    let stream = Async::<TcpStream>::connect(socket_addr).await?;
-                    let stream = async_native_tls::connect(host, stream).await?;
-                    Ok(CustomStream::Tls(stream))
+
+                if !received_data.is_empty() {
+                    let received_str = String::from_utf8_lossy(&received_data);
+                    return Poll::Ready(received_str.to_string());
                 }
-                scheme => bail!("unsupported sceme: {:?}", scheme),
-            }
-        })
-    }
-}
-impl tokio::io::AsyncRead for CustomStream {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        match &mut *self {
-            CustomStream::Plain(s) => {
-                Pin::new(s)
-                    .poll_read(cx, buf.initialize_unfilled())
-                    .map_ok(|size| {
-                        buf.advance(size);
-                    })
-            }
-            CustomStream::Tls(s) => {
-                Pin::new(s)
-                    .poll_read(cx, buf.initialize_unfilled())
-                    .map_ok(|size| {
-                        buf.advance(size);
-                    })
+                cx.waker().wake_by_ref();
+                return Poll::Pending;
             }
         }
+        cx.waker().wake_by_ref();
+        Poll::Pending
     }
 }
-
-impl tokio::io::AsyncWrite for CustomStream {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<std::result::Result<usize, std::io::Error>> {
-        match &mut *self {
-            CustomStream::Plain(s) => Pin::new(s).poll_write(cx, buf),
-            CustomStream::Tls(s) => Pin::new(s).poll_write(cx, buf),
-        }
-    }
-
-    fn poll_flush(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<std::result::Result<(), std::io::Error>> {
-        match &mut *self {
-            CustomStream::Plain(s) => Pin::new(s).poll_flush(cx),
-            CustomStream::Tls(s) => Pin::new(s).poll_flush(cx),
-        }
-    }
-
-    fn poll_shutdown(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<std::result::Result<(), std::io::Error>> {
-        match &mut *self {
-            CustomStream::Plain(s) => {
-                s.get_ref().shutdown(Shutdown::Write)?;
-                Poll::Ready(Ok(()))
-            }
-            CustomStream::Tls(s) => Pin::new(s).poll_close(cx),
-        }
-    }
-}
-
-impl hyper::client::connect::Connection for CustomStream {
-    fn connected(&self) -> hyper::client::connect::Connected {
-        hyper::client::connect::Connected::new()
-    }
-}
-
-async fn fetch(req: Request<Body>) -> anyhow::Result<Response<Body>> {
-    Ok(Client::builder()
-        .executor(CustomExecutor)
-        .build::<_, Body>(CustomConnector)
-        .request(req)
-        .await?)
-}
-
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     let runtime = Runtime::new().with_high_num(2).with_low_num(4);
     runtime.run();
-    spawn_task!(BackgroundProcess).detach();
-    let future = async {
-        let url = "http://www.rust-lang.org";
-        let request = Request::get(url).body(Body::empty()).unwrap();
-        let response = fetch(request).await.unwrap();
-        println!("Response status: {}", response.status());
-        let body_bytes = hyper::body::to_bytes(response.into_body()).await.unwrap();
-        let html = String::from_utf8(body_bytes.to_vec()).unwrap();
-        println!("{}", html);
-    };
-    let test = spawn_task!(future);
-    future::block_on(test);
+    let addr = "127.0.0.1:13265".parse()?;
+    let mut server = TcpListener::bind(addr)?;
+    let mut stream = TcpStream::connect(server.local_addr()?)?;
+    let poll: MioPoll = MioPoll::new()?;
+    poll.registry()
+        .register(&mut server, SERVER, Interest::READABLE)?;
+    let server_worker = ServerFuture { server, poll };
+    let test = spawn_task!(server_worker);
+    let mut client_poll: MioPoll = MioPoll::new()?;
+    client_poll
+        .registry()
+        .register(&mut stream, CLIENT, Interest::WRITABLE)?;
+    let mut events = Events::with_capacity(128);
+    let _ = client_poll.poll(&mut events, None).unwrap();
+    for event in events.iter() {
+        if event.token() == CLIENT && event.is_writable() {
+            let message = "that's so dingo!\n";
+            let _ = stream.write_all(message.as_bytes());
+        }
+    }
+    let outcome = future::block_on(test);
+    println!("outcome: {}", outcome);
+    Ok(())
 }
